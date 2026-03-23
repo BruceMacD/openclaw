@@ -115,6 +115,22 @@ export function resolveOwningPluginIdsForProvider(params: {
   return pluginIds.length > 0 ? pluginIds : undefined;
 }
 
+export function resolveBundledProviderPluginIds(params: {
+  config?: PluginLoadOptions["config"];
+  workspaceDir?: string;
+  env?: PluginLoadOptions["env"];
+}): string[] {
+  const registry = loadPluginManifestRegistry({
+    config: params.config,
+    workspaceDir: params.workspaceDir,
+    env: params.env,
+  });
+  return registry.plugins
+    .filter((p) => p.origin === "bundled" && p.providers.length > 0)
+    .map((p) => p.id)
+    .toSorted((a, b) => a.localeCompare(b));
+}
+
 export function resolveNonBundledProviderPluginIds(params: {
   config?: PluginLoadOptions["config"];
   workspaceDir?: string;

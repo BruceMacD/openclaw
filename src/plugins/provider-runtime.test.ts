@@ -9,11 +9,16 @@ import type { ProviderPlugin, ProviderRuntimeModel } from "./types.js";
 type ResolvePluginProviders = typeof import("./providers.js").resolvePluginProviders;
 type ResolveNonBundledProviderPluginIds =
   typeof import("./providers.js").resolveNonBundledProviderPluginIds;
+type ResolveBundledProviderPluginIds =
+  typeof import("./providers.js").resolveBundledProviderPluginIds;
 type ResolveOwningPluginIdsForProvider =
   typeof import("./providers.js").resolveOwningPluginIdsForProvider;
 
 const resolvePluginProvidersMock = vi.fn<ResolvePluginProviders>((_) => [] as ProviderPlugin[]);
 const resolveNonBundledProviderPluginIdsMock = vi.fn<ResolveNonBundledProviderPluginIds>(
+  (_) => [] as string[],
+);
+const resolveBundledProviderPluginIdsMock = vi.fn<ResolveBundledProviderPluginIds>(
   (_) => [] as string[],
 );
 const resolveOwningPluginIdsForProviderMock = vi.fn<ResolveOwningPluginIdsForProvider>(
@@ -24,6 +29,8 @@ vi.mock("./providers.js", () => ({
   resolvePluginProviders: (params: unknown) => resolvePluginProvidersMock(params as never),
   resolveNonBundledProviderPluginIds: (params: unknown) =>
     resolveNonBundledProviderPluginIdsMock(params as never),
+  resolveBundledProviderPluginIds: (params: unknown) =>
+    resolveBundledProviderPluginIdsMock(params as never),
   resolveOwningPluginIdsForProvider: (params: unknown) =>
     resolveOwningPluginIdsForProviderMock(params as never),
 }));
@@ -98,6 +105,8 @@ describe("provider-runtime", () => {
     resolvePluginProvidersMock.mockReturnValue([]);
     resolveNonBundledProviderPluginIdsMock.mockReset();
     resolveNonBundledProviderPluginIdsMock.mockReturnValue([]);
+    resolveBundledProviderPluginIdsMock.mockReset();
+    resolveBundledProviderPluginIdsMock.mockReturnValue([]);
     resolveOwningPluginIdsForProviderMock.mockReset();
     resolveOwningPluginIdsForProviderMock.mockReturnValue(undefined);
   });
@@ -493,5 +502,39 @@ describe("provider-runtime", () => {
     ]);
 
     expect(resolvePluginProvidersMock).not.toHaveBeenCalled();
+  });
+
+  it("runs bundled provider plugins for catalog augmentation", async () => {
+    resolveBundledProviderPluginIdsMock.mockReturnValue(["ollama"]);
+    resolvePluginProvidersMock.mockReturnValue([
+      {
+        id: "ollama",
+        label: "Ollama",
+        auth: [],
+        augmentModelCatalog: async () => [
+          { provider: "ollama", id: "llama3.2", name: "Llama 3.2" },
+          { provider: "ollama", id: "mistral", name: "Mistral" },
+        ],
+      },
+    ]);
+
+    await expect(
+      augmentModelCatalogWithProviderPlugins({
+        env: process.env,
+        context: {
+          env: process.env,
+          entries: [],
+        },
+      }),
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        { provider: "ollama", id: "llama3.2", name: "Llama 3.2" },
+        { provider: "ollama", id: "mistral", name: "Mistral" },
+      ]),
+    );
+
+    expect(resolvePluginProvidersMock).toHaveBeenCalledWith(
+      expect.objectContaining({ onlyPluginIds: ["ollama"] }),
+    );
   });
 });

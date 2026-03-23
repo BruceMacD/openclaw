@@ -11,6 +11,8 @@ type ResolveOwningPluginIdsForProvider =
   typeof import("../providers.js").resolveOwningPluginIdsForProvider;
 type ResolveNonBundledProviderPluginIds =
   typeof import("../providers.js").resolveNonBundledProviderPluginIds;
+type ResolveBundledProviderPluginIds =
+  typeof import("../providers.js").resolveBundledProviderPluginIds;
 
 const resolvePluginProvidersMock = vi.hoisted(() => vi.fn<ResolvePluginProviders>(() => []));
 const resolveOwningPluginIdsForProviderMock = vi.hoisted(() =>
@@ -21,6 +23,9 @@ const resolveOwningPluginIdsForProviderMock = vi.hoisted(() =>
 const resolveNonBundledProviderPluginIdsMock = vi.hoisted(() =>
   vi.fn<ResolveNonBundledProviderPluginIds>((_) => [] as string[]),
 );
+const resolveBundledProviderPluginIdsMock = vi.hoisted(() =>
+  vi.fn<ResolveBundledProviderPluginIds>((_) => [] as string[]),
+);
 
 vi.mock("../providers.js", () => ({
   resolvePluginProviders: (params: unknown) => resolvePluginProvidersMock(params as never),
@@ -28,6 +33,8 @@ vi.mock("../providers.js", () => ({
     resolveOwningPluginIdsForProviderMock(params as never),
   resolveNonBundledProviderPluginIds: (params: unknown) =>
     resolveNonBundledProviderPluginIdsMock(params as never),
+  resolveBundledProviderPluginIds: (params: unknown) =>
+    resolveBundledProviderPluginIdsMock(params as never),
 }));
 
 let augmentModelCatalogWithProviderPlugins: typeof import("../provider-runtime.js").augmentModelCatalogWithProviderPlugins;
@@ -70,6 +77,8 @@ describe("provider catalog contract", () => {
 
     resolveNonBundledProviderPluginIdsMock.mockReset();
     resolveNonBundledProviderPluginIdsMock.mockReturnValue([]);
+    resolveBundledProviderPluginIdsMock.mockReset();
+    resolveBundledProviderPluginIdsMock.mockReturnValue([]);
   });
 
   it("keeps codex-only missing-auth hints wired through the provider runtime", () => {

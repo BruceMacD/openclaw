@@ -11,6 +11,24 @@ import { OLLAMA_DEFAULT_BASE_URL, resolveOllamaApiBase } from "openclaw/plugin-s
 const PROVIDER_ID = "ollama";
 const DEFAULT_API_KEY = "ollama-local";
 
+const OLLAMA_CATALOG_TTL_MS = 60_000;
+type OllamaCacheEntry = {
+  models: Array<{
+    provider: string;
+    id: string;
+    name: string;
+    contextWindow?: number;
+    reasoning?: boolean;
+    input?: ("text" | "image" | "document")[];
+  }>;
+  expiresAt: number;
+  baseUrl: string;
+};
+let ollamaCatalogCache: OllamaCacheEntry | null = null;
+export function __resetOllamaCatalogCacheForTest(): void {
+  ollamaCatalogCache = null;
+}
+
 async function loadProviderSetup() {
   return await import("openclaw/plugin-sdk/ollama-setup");
 }
@@ -118,6 +136,51 @@ export default definePluginEntry({
         }
         const providerSetup = await loadProviderSetup();
         await providerSetup.ensureOllamaModelPulled({ config, model, prompter });
+      },
+      augmentModelCatalog: async (ctx) => {
+        const now = Date.now();
+        const resolvedBaseUrl = resolveOllamaApiBase(
+          ctx.config?.models?.providers?.ollama?.baseUrl,
+        );
+
+        if (ollamaCatalogCache?.baseUrl === resolvedBaseUrl && now < ollamaCatalogCache.expiresAt) {
+          console.log(
+            `[ollama] augmentModelCatalog: cache hit (${ollamaCatalogCache.models.length} models, expires in ${Math.round((ollamaCatalogCache.expiresAt - now) / 1000)}s)`,
+          );
+          return ollamaCatalogCache.models;
+        }
+
+        console.log(`[ollama] augmentModelCatalog: cache miss, fetching from ${resolvedBaseUrl}`);
+        try {
+          const providerSetup = await loadProviderSetup();
+          const provider = await providerSetup.buildOllamaProvider(
+            ctx.config?.models?.providers?.ollama?.baseUrl,
+            { quiet: true },
+          );
+          const models = provider.models.map((m) => ({
+            provider: PROVIDER_ID,
+            id: m.id,
+            name: m.name ?? m.id,
+            contextWindow: typeof m.contextWindow === "number" ? m.contextWindow : undefined,
+            reasoning: typeof m.reasoning === "boolean" ? m.reasoning : undefined,
+            input: Array.isArray(m.input) ? m.input : undefined,
+          }));
+          console.log(
+            `[ollama] augmentModelCatalog: fetched ${models.length} model(s), caching for ${OLLAMA_CATALOG_TTL_MS / 1000}s`,
+          );
+          ollamaCatalogCache = {
+            models,
+            expiresAt: now + OLLAMA_CATALOG_TTL_MS,
+            baseUrl: resolvedBaseUrl,
+          };
+          return models;
+        } catch (err) {
+          const stale = ollamaCatalogCache?.models ?? [];
+          console.warn(
+            `[ollama] augmentModelCatalog: fetch failed (${String(err)}), returning ${stale.length} stale model(s)`,
+          );
+          return stale;
+        }
       },
     });
   },

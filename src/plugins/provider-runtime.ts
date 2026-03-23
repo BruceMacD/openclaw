@@ -1,11 +1,13 @@
 import type { AuthProfileCredential, OAuthCredential } from "../agents/auth-profiles/types.js";
 import { normalizeProviderId } from "../agents/provider-id.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import {
   augmentBundledProviderCatalog,
   resolveBundledProviderBuiltInModelSuppression,
 } from "./provider-catalog-metadata.js";
 import {
+  resolveBundledProviderPluginIds,
   resolveNonBundledProviderPluginIds,
   resolveOwningPluginIdsForProvider,
   resolvePluginProviders,
@@ -41,6 +43,8 @@ function matchesProviderId(provider: ProviderPlugin, providerId: string): boolea
   }
   return (provider.aliases ?? []).some((alias) => normalizeProviderId(alias) === normalized);
 }
+
+const log = createSubsystemLogger("plugins/provider-runtime");
 
 let cachedHookProvidersWithoutConfig = new WeakMap<
   NodeJS.ProcessEnv,
@@ -138,6 +142,25 @@ function resolveProviderPluginsForCatalogHooks(params: {
   env?: NodeJS.ProcessEnv;
 }): ProviderPlugin[] {
   const onlyPluginIds = resolveNonBundledProviderPluginIds({
+    config: params.config,
+    workspaceDir: params.workspaceDir,
+    env: params.env,
+  });
+  if (onlyPluginIds.length === 0) {
+    return [];
+  }
+  return resolveProviderPluginsForHooks({
+    ...params,
+    onlyPluginIds,
+  });
+}
+
+function resolveProviderPluginsForBundledCatalogHooks(params: {
+  config?: OpenClawConfig;
+  workspaceDir?: string;
+  env?: NodeJS.ProcessEnv;
+}): ProviderPlugin[] {
+  const onlyPluginIds = resolveBundledProviderPluginIds({
     config: params.config,
     workspaceDir: params.workspaceDir,
     env: params.env,
@@ -390,6 +413,22 @@ export async function augmentModelCatalogWithProviderPlugins(params: {
   const supplemental = [
     ...augmentBundledProviderCatalog(params.context),
   ] as ProviderAugmentModelCatalogContext["entries"];
+
+  const bundledPlugins = resolveProviderPluginsForBundledCatalogHooks(params);
+  log.debug(
+    `augmentModelCatalog: running bundled hooks for ${bundledPlugins.length} plugin(s): [${bundledPlugins.map((p) => p.id).join(", ")}]`,
+  );
+  for (const plugin of bundledPlugins) {
+    const next = await plugin.augmentModelCatalog?.(params.context);
+    log.debug(
+      `augmentModelCatalog: bundled plugin "${plugin.id}" returned ${next?.length ?? 0} entries`,
+    );
+    if (!next || next.length === 0) {
+      continue;
+    }
+    supplemental.push(...next);
+  }
+
   for (const plugin of resolveProviderPluginsForCatalogHooks(params)) {
     const next = await plugin.augmentModelCatalog?.(params.context);
     if (!next || next.length === 0) {
